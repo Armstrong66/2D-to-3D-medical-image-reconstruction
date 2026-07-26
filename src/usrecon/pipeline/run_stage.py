@@ -17,6 +17,7 @@ from pathlib import Path
 
 import yaml
 import torch
+import torch.nn.functional as F
 
 from usrecon.utils.checkpoint import stage_run, save_checkpoint, load_checkpoint
 from usrecon.utils.device import resolve_device
@@ -25,6 +26,12 @@ from usrecon.utils.viz import plot_frame_grid, plot_loss_curve
 from usrecon.encoders import build_encoder
 from usrecon.data.synthetic import make_synthetic_frames, make_synthetic_pose_pair, make_synthetic_sweep
 from usrecon.pose import build_pose_regressor, pose_loss
+from usrecon.reconstruction import (
+    compound_point_cloud,
+    ImplicitFieldRegressor,
+    build_positional_encoder,
+    FOURIER,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -157,9 +164,187 @@ def run_stage1_pose(cfg: dict, use_synthetic: bool = True) -> None:
         )
 
 
+def run_stage2_compounding(cfg: dict, use_synthetic: bool = True) -> None:
+    set_seed(cfg.get("seed", 0))
+    device_plan = resolve_device(**cfg["device"])
+    logger.info("Device plan: %s", device_plan)
+
+    with stage_run("stage2_compounding", config=cfg) as ctx:
+        # Load encoder and pose regressor from checkpoints
+        encoder = build_encoder(cfg["encoder"])
+        encoder_path = Path(cfg["training"].get("encoder_checkpoint", ""))
+        if encoder_path.exists():
+            encoder.load_state_dict(torch.load(encoder_path, map_location="cpu"))
+
+        pose_regressor = build_pose_regressor({"embed_dim": cfg["encoder"]["embed_dim"]})
+        pose_path = Path(cfg["training"].get("pose_checkpoint", ""))
+        if pose_path.exists():
+            pose_regressor.load_state_dict(torch.load(pose_path, map_location="cpu"))
+
+        encoder.eval()
+        pose_regressor.eval()
+
+        if use_synthetic:
+            # Generate synthetic sweep
+            frames, poses = make_synthetic_sweep(
+                num_frames=cfg["training"].get("num_frames", 4),
+                batch_size=cfg["training"]["batch_size"],
+                channels=cfg["data"]["channels"],
+                height=cfg["data"]["image_size"],
+                width=cfg["data"]["image_size"],
+                seed=cfg.get("seed", 0),
+            )
+            B, N, C, H, W = frames.shape
+
+            # Encode frames
+            with torch.no_grad():
+                embeddings_list = [encoder(frames[:, i]) for i in range(N)]
+                embeddings = torch.stack(embeddings_list, dim=1)  # (B, N, D)
+
+            # Predict poses
+            pred_transforms = pose_regressor(embeddings)  # (B, N, 7)
+
+            # Compound to point cloud
+            pixel_spacing = cfg["data"].get("pixel_spacing", 0.5)
+            points, intensities = compound_point_cloud(
+                frames.view(B, N, H, W), pred_transforms, pixel_spacing
+            )
+
+            ctx["points_shape"] = tuple(points.shape)
+            ctx["intensities_shape"] = tuple(intensities.shape)
+            ctx["num_points"] = points.shape[1]
+        else:
+            raise NotImplementedError("Real-data compounding not implemented yet.")
+
+        save_checkpoint("stage2_compounding", "point_cloud", {"points": points, "intensities": intensities})
+        logger.info(
+            "stage2_compounding OK: %d points, shape=%s",
+            ctx["num_points"], tuple(ctx["points_shape"]),
+        )
+
+
+def run_stage3_implicit_field(cfg: dict, use_synthetic: bool = True) -> None:
+    set_seed(cfg.get("seed", 0))
+    device_plan = resolve_device(**cfg["device"])
+    logger.info("Device plan: %s", device_plan)
+
+    with stage_run("stage3_implicit_field", config=cfg) as ctx:
+        # Load data from checkpoint
+        checkpoint_path = Path(cfg["training"].get("checkpoint_path", ""))
+        if checkpoint_path.exists():
+            ckpt = torch.load(checkpoint_path, map_location="cpu")
+            points = ckpt.get("points")
+            intensities = ckpt.get("intensities")
+        else:
+            # Generate synthetic data
+            frames, _ = make_synthetic_sweep(
+                num_frames=cfg["training"].get("num_frames", 4),
+                batch_size=cfg["training"]["batch_size"],
+                channels=cfg["data"]["channels"],
+                height=cfg["data"]["image_size"],
+                width=cfg["data"]["image_size"],
+                seed=cfg.get("seed", 0),
+            )
+            B, N, C, H, W = frames.shape
+            points, intensities = compound_point_cloud(
+                frames.view(B, N, H, W),
+                torch.zeros(B, N, 7),  # identity poses for synthetic
+                cfg["data"].get("pixel_spacing", 0.5),
+            )
+
+        # Build implicit field
+        implicit_field = ImplicitFieldRegressor(
+            dim_in=3,
+            hidden_dim=cfg["reconstruction"].get("implicit_hidden_dim", 128),
+            num_layers=cfg["reconstruction"].get("implicit_num_layers", 4),
+            positional_encoding=cfg["reconstruction"].get("positional_encoding", "fourier"),
+            pe_num_freqs=cfg["reconstruction"].get("pe_num_freqs", 6),
+        )
+
+        # Train
+        lr = cfg["training"].get("lr", 0.0003)
+        optimizer = torch.optim.Adam(implicit_field.parameters(), lr=lr)
+
+        num_epochs = cfg["training"].get("epochs", 10)
+        losses = []
+
+        for epoch in range(num_epochs):
+            optimizer.zero_grad()
+            pred_intensities = implicit_field(points)  # (B, N_pts, 1)
+            loss = torch.nn.functional.mse_loss(pred_intensities, intensities.unsqueeze(-1))
+            loss.backward()
+            optimizer.step()
+            losses.append(loss.item())
+
+        ctx["final_loss"] = losses[-1]
+        ctx["losses"] = losses
+        ctx["points_shape"] = tuple(points.shape)
+
+        # Save checkpoint
+        save_checkpoint("stage3_implicit_field", "implicit_model", implicit_field.state_dict())
+        fig_path = plot_loss_curve(losses, stage="stage3_implicit_field")
+        ctx["loss_figure"] = str(fig_path)
+
+        logger.info(
+            "stage3_implicit_field OK: final_loss=%.6f, points=%d",
+            ctx["final_loss"], points.shape[1],
+        )
+
+
+def run_stage4_render(cfg: dict, use_synthetic: bool = True) -> None:
+    set_seed(cfg.get("seed", 0))
+    device_plan = resolve_device(**cfg["device"])
+    logger.info("Device plan: %s", device_plan)
+
+    with stage_run("stage4_render", config=cfg) as ctx:
+        # Load implicit field from checkpoint
+        implicit_field = ImplicitFieldRegressor(
+            dim_in=3,
+            hidden_dim=cfg["reconstruction"].get("implicit_hidden_dim", 128),
+            num_layers=cfg["reconstruction"].get("implicit_num_layers", 4),
+            positional_encoding=cfg["reconstruction"].get("positional_encoding", "fourier"),
+            pe_num_freqs=cfg["reconstruction"].get("pe_num_freqs", 6),
+        )
+
+        checkpoint_path = Path(cfg["training"].get("implicit_checkpoint", ""))
+        if checkpoint_path.exists():
+            implicit_field.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
+        else:
+            raise FileNotFoundError("No implicit field checkpoint found. Run stage3 first.")
+
+        implicit_field.eval()
+
+        if use_synthetic:
+            # Create a regular 3D grid for rendering
+            grid_size = cfg["reconstruction"].get("grid_size", 32)
+            x = torch.linspace(-1, 1, grid_size)
+            y = torch.linspace(-1, 1, grid_size)
+            z = torch.linspace(-1, 1, grid_size)
+            xx, yy, zz = torch.meshgrid(x, y, z, indexing="xyz")
+            points = torch.stack([xx.flatten(), yy.flatten(), zz.flatten()], dim=-1).unsqueeze(0)  # (1, N, 3)
+
+            with torch.no_grad():
+                intensities = implicit_field(points)  # (1, N, 1)
+                intensities = intensities.view(grid_size, grid_size, grid_size)
+
+            ctx["voxel_shape"] = (grid_size, grid_size, grid_size)
+            ctx["intensities_min"] = intensities.min().item()
+            ctx["intensities_max"] = intensities.max().item()
+        else:
+            raise NotImplementedError("Real-data rendering not implemented yet.")
+
+        logger.info(
+            "stage4_render OK: voxel_shape=%s, range=[%.4f, %.4f]",
+            ctx["voxel_shape"], ctx["intensities_min"], ctx["intensities_max"],
+        )
+
+
 _STAGES = {
     "stage0_encoder": run_stage0_encoder,
     "stage1_pose": run_stage1_pose,
+    "stage2_compounding": run_stage2_compounding,
+    "stage3_implicit_field": run_stage3_implicit_field,
+    "stage4_render": run_stage4_render,
 }
 
 
