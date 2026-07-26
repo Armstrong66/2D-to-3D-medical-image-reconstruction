@@ -1,0 +1,45 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+*.egg
+
+# --- Environments ---
+.venv/
+venv/
+.conda/
+.env
+
+# --- Data & outputs (never commit) ---
+data/
+outputs/
+*.pt
+*.pth
+*.ckpt
+*.npz
+*.npy
+*.h5
+*.nii
+*.nii.gz
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+*-checkpoint.ipynb
+
+# --- Kaggle ---
+kaggle.json
+
+# --- Logs / caching ---
+*.log
+.cache/
+wandb/
+mlruns/
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/
+*.swp

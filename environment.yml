@@ -1,0 +1,24 @@
+name: usrecon
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - scipy
+  - matplotlib
+  - pyyaml
+  - tqdm
+  - pytest
+  - einops
+  # GPU build on the workstation; swap for cpuonly on the dev/authoring env:
+  - pytorch
+  - torchvision
+  - pytorch-cuda=12.1
+  - pip:
+      - SimpleITK
+      - kaggle
+      - timm

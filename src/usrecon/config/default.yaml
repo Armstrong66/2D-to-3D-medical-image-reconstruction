@@ -1,0 +1,43 @@
+# Default pipeline config. CLI flags in pipeline/run_stage.py override
+# individual keys -- this file is the single source of truth for
+# hyperparameters, not scattered argparse defaults.
+
+seed: 0
+
+data:
+  image_size: 128
+  channels: 1
+  pixel_spacing: 0.5  # mm per pixel
+
+encoder:
+  type: vit          # vit | vig -- swap here, no code change needed
+  image_size: 128
+  patch_size: 16
+  in_chans: 1
+  embed_dim: 128
+  depth: 4
+  num_heads: 4        # used by vit only
+  k: 9                # used by vig only
+
+pose:
+  hidden_dim: 64      # hidden dimension for pose regressor MLP
+  num_points: 64      # number of random points for point-based loss
+  smoothness_weight: 0.01
+
+reconstruction:
+  implicit_hidden_dim: 128
+  implicit_num_layers: 4
+  positional_encoding: fourier  # fourier | siren | None
+  pe_num_freqs: 6
+  lr: 0.0003
+
+device:
+  gpus: auto           # auto | cpu | 0 | 0,1
+  parallel_strategy: auto   # auto | single | ddp
+  min_free_mib: 6000
+
+training:
+  batch_size: 8
+  lr: 0.0003
+  epochs: 2            # smoke-test default; override for real runs
+  num_points: 64       # points for pose loss

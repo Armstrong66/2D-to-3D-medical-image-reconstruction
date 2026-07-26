@@ -1,0 +1,14 @@
+# --- Stage 0 (encoders) — required now ---
+torch>=2.2,<2.6
+torchvision>=0.17,<0.21
+numpy>=1.26,<2.0
+matplotlib>=3.8,<3.10
+PyYAML>=6.0,<7.0
+pytest>=7.4,<9.0
+tqdm>=4.66
+
+# --- Add as later stages are built, not before ---
+# scipy>=1.11,<1.14          # Stage 1: point-distance loss / registration math
+# SimpleITK>=2.3,<2.5        # data/datasets.py: reading real DICOM/medical volumes
+# kaggle>=1.6                # data/download.py: Kaggle API for dataset attach/publish
+# einops>=0.7                # only if a later stage's tensor reshapes get hairy
