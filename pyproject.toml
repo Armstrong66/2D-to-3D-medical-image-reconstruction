@@ -7,11 +7,11 @@ name = "usrecon"
 version = "0.1.0"
 description = "Trackerless freehand ultrasound 2D-to-3D reconstruction pipeline (ACVSS26 hackathon)"
 requires-python = ">=3.10"
-readme = "usrecon-root/README.md"
+readme = "README.md"
 
 [tool.setuptools.packages.find]
-where = ["usrecon-root/src"]
+where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["usrecon-root/tests"]
+testpaths = ["tests"]
 addopts = "-q"
