@@ -10,7 +10,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from usrecon.encoders.base import VisionEncoder
+from .base import VisionEncoder
 
 
 class ViTEncoder(VisionEncoder):

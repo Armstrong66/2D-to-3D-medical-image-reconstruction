@@ -9,7 +9,7 @@ or without matplotlib installed at all (e.g. a pure logic-check pass).
 from __future__ import annotations
 from pathlib import Path
 
-from usrecon.paths import FIGURES_DIR
+from ..paths import FIGURES_DIR
 
 
 def _fig_path(stage: str, name: str) -> Path:

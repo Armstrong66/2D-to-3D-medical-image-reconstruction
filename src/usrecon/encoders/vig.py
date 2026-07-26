@@ -18,7 +18,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from usrecon.encoders.base import VisionEncoder
+from .encoders.base import VisionEncoder
 
 
 def _knn_graph(x: torch.Tensor, k: int) -> torch.Tensor:

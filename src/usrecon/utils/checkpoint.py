@@ -12,7 +12,7 @@ from pathlib import Path
 import json
 import traceback
 
-from usrecon.paths import OUTPUT_DIR
+from ..paths import OUTPUT_DIR
 
 
 def stage_dir(stage: str) -> Path:

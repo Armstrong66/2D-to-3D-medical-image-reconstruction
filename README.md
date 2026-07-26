@@ -1,4 +1,4 @@
-# Trackerless Freehand Ultrasound 2D→3D Reconstruction
+# 2D-to-3D-medical-image-reconstruction
 
 ACVSS26 hackathon project. See **`CLAUDE.md`** for the pipeline design,
 math, repo/dataset map, and the 5-day milestone schedule — this file
@@ -99,8 +99,8 @@ pip install -e .
 ### Kaggle notebook
 The notebook only needs three cells (see `notebooks/kaggle_run.ipynb`):
 ```python
-!git clone https://github.com/<you>/<repo>.git
-%cd <repo>
+!git clone https://github.com/Armstrong66/2D-to-3D-medical-image-reconstruction.git
+%cd 2D-to-3D-medical-image-reconstruction
 !pip install -e . -q
 ```
 ```python
@@ -121,7 +121,7 @@ CPU build (dev env), `numpy`, `scipy`, `matplotlib`, `einops`, `pyyaml`,
 
 ### `pyproject.toml`
 `src/`-layout, `setuptools` backend, editable-installable so the Kaggle
-notebook's `pip install -e .` and any future `pip install <repo-url>` both
+notebook's `pip install -e .` and any future `pip install https://github.com/Armstrong66/2D-to-3D-medical-image-reconstruction` both
 work without path hacks.
 
 ---
@@ -148,7 +148,7 @@ OUTPUT_DIR  = PROJECT_ROOT / "outputs"
 ```
 
 This resolves identically whether the repo lives at `/home/claude/...`,
-`/kaggle/working/<repo>`, or a workstation path — nothing in the codebase
+`/kaggle/working/2D-to-3D-medical-image-reconstruction`, or a workstation path — nothing in the codebase
 should ever construct an absolute path by hand. On Kaggle specifically,
 `data/download.py` additionally checks `/kaggle/input/` before falling back
 to `DATA_DIR` (§6).

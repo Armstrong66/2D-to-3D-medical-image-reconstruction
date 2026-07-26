@@ -19,14 +19,14 @@ import yaml
 import torch
 import torch.nn.functional as F
 
-from usrecon.utils.checkpoint import stage_run, save_checkpoint, load_checkpoint
-from usrecon.utils.device import resolve_device
-from usrecon.utils.seed import set_seed
-from usrecon.utils.viz import plot_frame_grid, plot_loss_curve
-from usrecon.encoders import build_encoder
-from usrecon.data.synthetic import make_synthetic_frames, make_synthetic_pose_pair, make_synthetic_sweep
-from usrecon.pose import build_pose_regressor, pose_loss
-from usrecon.reconstruction import (
+from ..utils.checkpoint import stage_run, save_checkpoint, load_checkpoint
+from ..utils.device import resolve_device
+from ..utils.seed import set_seed
+from ..utils.viz import plot_frame_grid, plot_loss_curve
+from ..encoders import build_encoder
+from ..data.synthetic import make_synthetic_frames, make_synthetic_pose_pair, make_synthetic_sweep
+from ..pose import build_pose_regressor, pose_loss
+from ..reconstruction import (
     compound_point_cloud,
     ImplicitFieldRegressor,
     build_positional_encoder,

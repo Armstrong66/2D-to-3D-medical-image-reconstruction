@@ -2,9 +2,9 @@
 # Placeholder for reconstruction submodules
 # These will be implemented in later stages
 
-from usrecon.reconstruction.compounding import compound_point_cloud
-from usrecon.reconstruction.implicit_field import ImplicitFieldRegressor
-from usrecon.reconstruction.positional_encoding import (
+from .reconstruction.compounding import compound_point_cloud
+from .reconstruction.implicit_field import ImplicitFieldRegressor
+from .reconstruction.positional_encoding import (
     build_positional_encoder,
     FOURIER,
     SIREN,

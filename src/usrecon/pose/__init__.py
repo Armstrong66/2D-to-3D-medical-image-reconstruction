@@ -1,6 +1,6 @@
 """Pose estimation module (Stage 1)."""
-from usrecon.pose.regression import PoseRegressor, build_pose_regressor
-from usrecon.pose.losses import (
+from .pose.regression import PoseRegressor, build_pose_regressor
+from .pose.losses import (
     pose_loss,
     pose_point_loss,
     pose_smoothness_loss,

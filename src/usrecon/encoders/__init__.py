@@ -1,6 +1,6 @@
-from usrecon.encoders.base import VisionEncoder
-from usrecon.encoders.vit import ViTEncoder
-from usrecon.encoders.vig import ViGEncoder
+from .encoders.base import VisionEncoder
+from .encoders.vit import ViTEncoder
+from .encoders.vig import ViGEncoder
 
 
 def build_encoder(cfg: dict) -> VisionEncoder:
