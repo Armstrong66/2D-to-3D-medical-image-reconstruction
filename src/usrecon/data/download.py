@@ -32,6 +32,7 @@ from ..paths import DATA_DIR, SCRATCH_DIR
 
 __all__ = [
     "get_dataset",
+    "get_dataset_path",
     "download_tus_rec_2024",
     "download_tus_rec_2025",
     "download_busi",
@@ -76,14 +77,56 @@ def _running_on_kaggle() -> bool:
 
 
 def _get_kaggle_dataset_path(name: str) -> Path | None:
-    """Check if a Kaggle dataset is already attached at /kaggle/input."""
+    """
+    Check if a Kaggle dataset is already attached at /kaggle/input.
+
+    Also searches for common dataset name variations and looks inside
+    subdirectories for dataset files.
+
+    Args:
+        name: Dataset name (e.g., "tus-rec-2024", "busi")
+
+    Returns:
+        Path to attached dataset if found, None otherwise
+
+    Note: This function performs an exact match after normalizing hyphens
+    to underscores. For example, if your Kaggle dataset slug is
+    "tus-rec-2024-part1", calling get_dataset("tus_rec_2024") will NOT
+    match it. Make sure your config's dataset_name matches the exact slug.
+    """
     kaggle_input = Path("/kaggle/input")
     if not kaggle_input.exists():
         return None
 
+    name_normalized = name.lower().replace("-", "_").replace(" ", "_")
+
+    # First pass: exact match (case-insensitive, hyphen-to-underscore normalized)
     for candidate in kaggle_input.iterdir():
-        if candidate.name.lower().replace("-", "_") == name.lower().replace("-", "_"):
+        candidate_name = candidate.name.lower().replace("-", "_").replace(" ", "_")
+        if candidate_name == name_normalized:
             return candidate
+
+    # Second pass: search for dataset files inside /kaggle/input
+    for candidate in kaggle_input.iterdir():
+        # Check if candidate is a directory with dataset files
+        if candidate.is_dir():
+            # Look for common dataset file patterns
+            for ext in ["*.zip", "*.tar.gz", "*.parquet", "*.csv"]:
+                if list(candidate.glob(ext)):
+                    # Check if name contains dataset keyword
+                    if any(keyword in candidate_name for keyword in ["dataset", "data", "busi", "tus", "ultrasound"]):
+                        if any(keyword in candidate_name for keyword in name_normalized.split("_")):
+                            return candidate
+
+    # Third pass: partial name matching (handles variations like "tus-rec-2024" vs "tusrec2024")
+    for candidate in kaggle_input.iterdir():
+        candidate_name = candidate.name.lower().replace("-", "_").replace(" ", "_")
+        # Check if all parts of name_normalized are in candidate_name
+        name_parts = [p for p in name_normalized.split("_") if p]
+        candidate_parts = [p for p in candidate_name.split("_") if p]
+        if all(p in candidate_parts for p in name_parts):
+            return candidate
+
     return None
 
 
@@ -270,7 +313,13 @@ def get_dataset(
     kaggle_dataset_id: str | None = None,
 ) -> Path:
     """
-    Get a dataset by name, downloading if necessary.
+    Get a dataset by name, returning already-attached Kaggle datasets first.
+
+    This function checks multiple locations in order:
+    1. Kaggle /kaggle/input (already-attached datasets)
+    2. Kaggle /kaggle/tmp (scratch space cache)
+    3. Local DATA_DIR (for non-Kaggle environments)
+    4. Downloads if not found
 
     Args:
         name: Dataset name (e.g., "tus-rec-2024", "tus-rec-2025", "busi")
@@ -288,24 +337,30 @@ def get_dataset(
     # Normalize name for comparison
     name = name.lower().replace("-", "_").replace(" ", "_")
 
-    # Kaggle: check if dataset is already attached
+    # 1. Kaggle: check if dataset is already attached at /kaggle/input
     if _running_on_kaggle():
         attached = _get_kaggle_dataset_path(name)
         if attached is not None:
+            print(f"[get_dataset] Using attached Kaggle dataset: {attached}")
             return attached
 
-    # Determine download location
+    # 2. Determine download location
     # On Kaggle: use SCRATCH_DIR (/kaggle/tmp) for large files
     # Off Kaggle: use DATA_DIR
     download_dir = SCRATCH_DIR if _running_on_kaggle() else DATA_DIR
 
+    # 3. Check local cache
     cache_dir = download_dir / name
     if cache_dir.exists() and not force_download:
+        print(f"[get_dataset] Using cached dataset: {cache_dir}")
         return cache_dir
 
-    # Download based on dataset name
+    # 4. Download if not found
+    print(f"[get_dataset] Downloading {name} to {cache_dir}...")
+
     if "tus_rec_2024" in name or "tusrec2024" in name:
-        result = download_tus_rec_2024(cache_dir, auto_publish, kaggle_dataset_id)
+        # Only download part1 by default for quick testing
+        result = download_tus_rec_2024(cache_dir, auto_publish, kaggle_dataset_id, download_all=False)
     elif "tus_rec_2025" in name or "tusrec2025" in name:
         result = download_tus_rec_2025(cache_dir, auto_publish, kaggle_dataset_id)
     elif "busi" in name:
@@ -323,6 +378,7 @@ def download_tus_rec_2024(
     dest: Path,
     auto_publish: bool = False,
     kaggle_dataset_id: str | None = None,
+    download_all: bool = False,
 ) -> Path:
     """
     Download TUS-REC2024 dataset from Zenodo.
@@ -339,11 +395,17 @@ def download_tus_rec_2024(
         dest: Destination directory
         auto_publish: If True and on Kaggle, publish dataset to Kaggle
         kaggle_dataset_id: Dataset ID for Kaggle (e.g., "usrecon/tus-rec-2024")
+        download_all: If True, download all parts (part1+part2+part3+val).
+                      If False (default), only download part1 (~21GB).
 
     Returns:
         Path to downloaded dataset
     """
     dest.mkdir(parents=True, exist_ok=True)
+
+    # By default, only download part1 to save bandwidth/time
+    # Full dataset (all parts) can be downloaded with download_all=True
+    urls_to_download = TUS_REC_2024_URLS if download_all else {"train_part1": TUS_REC_2024_URLS["train_part1"]}
 
     print("=" * 60)
     print("TUS-REC2024 Dataset Download")
@@ -351,17 +413,20 @@ def download_tus_rec_2024(
     print(f"Destination: {dest}")
     print()
     print("Downloading from Zenodo:")
-    for name, url in TUS_REC_2024_URLS.items():
-        print(f"  - {name}: {url.split('?')[0]}")
+    for part_name, url in urls_to_download.items():
+        print(f"  - {part_name}: {url.split('?')[0]}")
 
     print()
-    print("Note: TUS-REC2024 training data is split into 3 parts (~43GB total)")
-    print("      Validation data is ~4GB")
+    if download_all:
+        print("Note: Downloading all parts (~43GB training + 4GB validation)")
+    else:
+        print("Note: Downloading only train_part1 (~21GB) for quick testing")
+        print("      Run with download_all=True to download full dataset")
     print()
 
     # Download each part
     downloaded_files = []
-    for part_name, url in TUS_REC_2024_URLS.items():
+    for part_name, url in urls_to_download.items():
         zip_path = dest / f"{part_name}.zip"
         if not zip_path.exists():
             _download_file(url, zip_path)
@@ -621,3 +686,19 @@ def clean_download_cache(data_dir: Path) -> None:
     for pattern in ["*.tar.gz", "*.tgz", "*.zip", "*.tmp"]:
         for f in data_dir.glob(pattern):
             f.unlink()
+
+
+def get_dataset_path(name: str) -> Path | None:
+    """
+    Get the path to an already-attached Kaggle dataset.
+
+    This is a convenience function for when datasets are already attached
+    on Kaggle and you want to get their path without triggering a download.
+
+    Args:
+        name: Dataset name (e.g., "tus_rec_2024", "busi")
+
+    Returns:
+        Path to the dataset if attached, None otherwise
+    """
+    return _get_kaggle_dataset_path(name)

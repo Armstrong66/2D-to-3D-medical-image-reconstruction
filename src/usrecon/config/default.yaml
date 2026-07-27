@@ -9,6 +9,11 @@ data:
   channels: 1
   pixel_spacing: 0.5  # mm per pixel
 
+  # Dataset names (must match Kaggle dataset slugs when attached)
+  # Normalization: hyphens/underscores replaced, case-insensitive
+  dataset_name: tus_rec_2024          # TUS-REC2024 dataset slug
+  segmentation_dataset_name: busi     # BUSI dataset slug for segmentation head
+
 encoder:
   type: vit          # vit | vig -- swap here, no code change needed
   image_size: 128
