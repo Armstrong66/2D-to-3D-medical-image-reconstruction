@@ -111,7 +111,7 @@ def _get_kaggle_dataset_path(name: str) -> Path | None:
         # Check if candidate is a directory with dataset files
         if candidate.is_dir():
             # Look for common dataset file patterns
-            for ext in ["*.zip", "*.tar.gz", "*.parquet", "*.csv"]:
+            for ext in ["*.zip", "*.tar.gz", "*.parquet", "*.csv", "*.h5"]:
                 if list(candidate.glob(ext)):
                     # Check if name contains dataset keyword
                     if any(keyword in candidate_name for keyword in ["dataset", "data", "busi", "tus", "ultrasound"]):
