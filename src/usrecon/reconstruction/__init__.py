@@ -1,10 +1,7 @@
 """Reconstruction module (Stage 2-3)."""
-# Placeholder for reconstruction submodules
-# These will be implemented in later stages
-
-from .reconstruction.compounding import compound_point_cloud
-from .reconstruction.implicit_field import ImplicitFieldRegressor
-from .reconstruction.positional_encoding import (
+from .compounding import compound_point_cloud
+from .implicit_field import ImplicitFieldRegressor
+from .positional_encoding import (
     build_positional_encoder,
     FOURIER,
     SIREN,

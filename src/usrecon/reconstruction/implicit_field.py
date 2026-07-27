@@ -8,7 +8,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from .reconstruction.positional_encoding import build_positional_encoder, FOURIER
+from .positional_encoding import build_positional_encoder, FOURIER
 
 
 class ImplicitFieldRegressor(nn.Module):
