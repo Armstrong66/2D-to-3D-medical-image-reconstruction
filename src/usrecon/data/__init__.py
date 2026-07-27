@@ -6,6 +6,16 @@ from .download import (
     download_tus_rec_2025,
     download_busi,
 )
+from .preprocess import (
+    PreprocessingConfig,
+    normalize,
+    denoise,
+    augment,
+    preprocess_frame,
+    compute_dataset_stats,
+    ultrasound_window,
+    histogram_equalization,
+)
 
 __all__ = [
     "make_synthetic_frames",
@@ -15,4 +25,12 @@ __all__ = [
     "download_tus_rec_2024",
     "download_tus_rec_2025",
     "download_busi",
+    "PreprocessingConfig",
+    "normalize",
+    "denoise",
+    "augment",
+    "preprocess_frame",
+    "compute_dataset_stats",
+    "ultrasound_window",
+    "histogram_equalization",
 ]

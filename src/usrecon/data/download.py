@@ -11,6 +11,10 @@ On Kaggle, this module:
 3. Checks /kaggle/input for already-attached datasets
 
 On local/Colab, downloads to data/ directory.
+
+Environment variables:
+- KAGGLE_TOKEN: Kaggle API token (used for auto-publishing to Kaggle Datasets)
+- KAGGLE_USERNAME: Kaggle username (used with KAGGLE_TOKEN)
 """
 
 from __future__ import annotations
@@ -34,6 +38,34 @@ __all__ = [
 ]
 
 
+# ============================================================================
+# TUS-REC2024 Dataset URLs (from QiLi111/TUS-REC2025-Challenge_baseline)
+# ============================================================================
+TUS_REC_2024_URLS = {
+    # Training parts (43GB total)
+    "train_part1": "https://zenodo.org/records/11178509/files/train_part1.zip?download=1",
+    "train_part2": "https://zenodo.org/records/11180795/files/train_part2.zip?download=1",
+    "train_part3": "https://zenodo.org/records/11355500/files/landmark.zip?download=1",
+    # Validation data (4GB)
+    "val": "https://zenodo.org/records/12979481/files/Freehand_US_data_val.zip?download=1",
+}
+
+# ============================================================================
+# TUS-REC2025 Dataset URLs
+# ============================================================================
+TUS_REC_2025_URLS = {
+    "train": "https://zenodo.org/records/15224704/files/Freehand_US_data_train_2025.zip?download=1",
+    "val": "https://zenodo.org/records/15699958/files/Freehand_US_data_val_2025.zip?download=1",
+}
+
+# ============================================================================
+# BUSI Dataset URLs
+# ============================================================================
+BUSI_URLS = {
+    "kaggle": "https://www.kaggle.com/datasets/aryashah2k/breast-ultrasound-images-dataset/download?datasetVersionNumber=1",
+}
+
+
 def _running_on_kaggle() -> bool:
     """Check if running on Kaggle by environment variable or path."""
     return (
@@ -55,33 +87,98 @@ def _get_kaggle_dataset_path(name: str) -> Path | None:
     return None
 
 
-def _download_zenodo_file(url: str, dest: Path) -> Path:
+def _download_file(url: str, dest: Path, chunk_size: int = 8192, retry: int = 3) -> Path:
     """
-    Download a file from Zenodo.
+    Download a file from a URL with progress.
 
     Args:
-        url: Zenodo download URL
-        dest: Destination path (should end with filename)
+        url: File URL
+        dest: Destination path
+        chunk_size: Download chunk size in bytes
+        retry: Number of retries on failure
 
     Returns:
         Path to downloaded file
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
-    print(f"Downloading {url} to {dest}...")
 
-    with urllib.request.urlopen(url) as response:
-        with open(dest, "wb") as f:
-            shutil.copyfileobj(response, f)
+    filename = url.split("?")[0].split("/")[-1]
+    print(f"Downloading {filename} to {dest}...")
 
-    print(f"Downloaded: {dest}")
-    return dest
+    import ssl
+    # Create SSL context that doesn't verify certificates (handles some Zenodo issues)
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+
+    # Use urllib with custom opener
+    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ssl_context))
+    opener.addheaders = [("User-Agent", "usrecon-download/1.0")]
+
+    last_error = None
+    for attempt in range(retry):
+        try:
+            with opener.open(url) as response:
+                total_size = int(response.headers.get("Content-Length", 0))
+                bytes_downloaded = 0
+
+                with open(dest, "wb") as f:
+                    while True:
+                        chunk = response.read(chunk_size)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        bytes_downloaded += len(chunk)
+
+                        if total_size > 0:
+                            progress = bytes_downloaded / total_size * 100
+                            print(f"  Progress: {progress:.1f}% ({bytes_downloaded / 1024 / 1024:.1f}MB / {total_size / 1024 / 1024:.1f}MB)")
+
+            print(f"Downloaded: {dest}")
+            return dest
+        except Exception as e:
+            last_error = e
+            print(f"  Attempt {attempt + 1}/{retry} failed: {e}")
+            if attempt < retry - 1:
+                import time
+                time.sleep(1)  # Wait before retry
+
+    raise RuntimeError(f"Failed to download {url} after {retry} attempts: {last_error}")
 
 
 def _has_kaggle_credentials() -> bool:
     """Check if Kaggle API credentials are available."""
+    return (
+        "KAGGLE_TOKEN" in os.environ
+        and "KAGGLE_USERNAME" in os.environ
+        and os.environ.get("KAGGLE_TOKEN")
+        and os.environ.get("KAGGLE_USERNAME")
+    )
+
+
+def _setup_kaggle_credentials() -> None:
+    """Configure Kaggle CLI credentials from environment variables."""
+    if not _has_kaggle_credentials():
+        return
+
     kaggle_dir = Path.home() / ".kaggle"
+    kaggle_dir.mkdir(parents=True, exist_ok=True)
     kaggle_json = kaggle_dir / "kaggle.json"
-    return kaggle_json.exists()
+
+    if not kaggle_json.exists():
+        credentials = {
+            "username": os.environ["KAGGLE_USERNAME"],
+            "key": os.environ["KAGGLE_TOKEN"],
+        }
+        with open(kaggle_json, "w") as f:
+            json.dump(credentials, f)
+
+        # Set permissions (required by Kaggle CLI)
+        try:
+            os.chmod(kaggle_json, 0o600)
+        except (OSError, NotImplementedError):
+            pass  # Windows doesn't support chmod
+        print(f"Kaggle credentials configured at {kaggle_json}")
 
 
 def _publish_to_kaggle_dataset(dataset_dir: Path, dataset_id: str) -> None:
@@ -94,28 +191,43 @@ def _publish_to_kaggle_dataset(dataset_dir: Path, dataset_id: str) -> None:
     """
     if not _has_kaggle_credentials():
         print(
-            f"Warning: Kaggle credentials not found at ~/.kaggle/kaggle.json. "
-            f"Skipping Kaggle dataset publication for {dataset_id}"
+            f"Warning: Kaggle credentials not found in environment. "
+            f"Set KAGGLE_USERNAME and KAGGLE_TOKEN to enable auto-publish."
         )
         return
 
+    # Configure Kaggle CLI credentials
+    _setup_kaggle_credentials()
+
     # Check if Kaggle CLI is installed
     try:
-        subprocess.run(["kaggle", "--version"], capture_output=True, check=True)
-    except (subprocess.CalledProcessError, FileNotFoundError):
+        result = subprocess.run(
+            ["kaggle", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            raise RuntimeError("Kaggle CLI not working")
+    except (subprocess.CalledProcessError, FileNotFoundError, TimeoutError) as e:
         print(
-            f"Warning: Kaggle CLI not installed. Run 'pip install kaggle'. "
-            f"Skipping Kaggle dataset publication for {dataset_id}"
+            f"Warning: Kaggle CLI not available ({e}). "
+            f"Install with: pip install kaggle"
         )
         return
 
     # Create dataset-metadata.json
+    dataset_name = dataset_id.split("/")[-1]
     metadata = {
         "id": dataset_id,
-        "title": dataset_id.split("/")[-1].replace("-", " ").title(),
-        "slug": dataset_id.split("/")[-1],
-        "description": f"Ultrasound dataset for TUS-REC challenge",
+        "title": dataset_name.replace("-", " ").title(),
+        "slug": dataset_name,
+        "description": f"Trackerless Freehand Ultrasound 2D-to-3D Reconstruction Dataset",
         "licenses": [{"name": "CC0-1.0"}],
+        "keywords": ["ultrasound", "medical-imaging", "2d-to-3d", "reconstruction"],
+        "authors": [
+            {"name": "usrecon", "affiliation": "ACVSS26 Hackathon"}
+        ],
     }
 
     metadata_file = dataset_dir / "dataset-metadata.json"
@@ -127,17 +239,26 @@ def _publish_to_kaggle_dataset(dataset_dir: Path, dataset_id: str) -> None:
     # Run kaggle datasets create
     try:
         result = subprocess.run(
-            ["kaggle", "datasets", "create", "-p", str(dataset_dir), "--dir-mode", "zip"],
+            [
+                "kaggle", "datasets", "create",
+                "-p", str(dataset_dir),
+                "--dir-mode", "zip",
+                "--public",
+            ],
             capture_output=True,
             text=True,
             cwd=str(dataset_dir),
+            timeout=300,  # 5 minutes for upload
         )
         if result.returncode == 0:
             print(f"Successfully published {dataset_id}")
-            print(result.stdout)
+            if result.stdout:
+                print(result.stdout)
         else:
             print(f"Failed to publish {dataset_id}:")
             print(result.stderr)
+    except subprocess.TimeoutExpired:
+        print(f"Timeout publishing {dataset_id}")
     except Exception as e:
         print(f"Error publishing {dataset_id} to Kaggle: {e}")
 
@@ -209,10 +330,10 @@ def download_tus_rec_2024(
     TUS-REC2024 is the forearm ultrasound dataset from the original challenge.
 
     Download URLs:
-    - Training Part 1: https://zenodo.org/records/11178508
-    - Training Part 2: https://zenodo.org/records/11180794
-    - Training Part 3: https://zenodo.org/records/11355499
-    - Validation: https://zenodo.org/records/12979481
+    - train_part1: https://zenodo.org/records/11178509/files/train_part1.zip
+    - train_part2: https://zenodo.org/records/11180795/files/train_part2.zip
+    - train_part3: https://zenodo.org/records/11355500/files/landmark.zip
+    - val: https://zenodo.org/records/12979481/files/Freehand_US_data_val.zip
 
     Args:
         dest: Destination directory
@@ -222,73 +343,45 @@ def download_tus_rec_2024(
     Returns:
         Path to downloaded dataset
     """
-    zenodo_urls = {
-        "train_part1": "https://zenodo.org/records/11178508/files/train_part1.zip",
-        "train_part2": "https://zenodo.org/records/11180794/files/train_part2.zip",
-        "train_part3": "https://zenodo.org/records/11355499/files/train_part3.zip",
-        "val": "https://zenodo.org/records/12979481/files/val.zip",
-    }
-
     dest.mkdir(parents=True, exist_ok=True)
 
+    print("=" * 60)
     print("TUS-REC2024 Dataset Download")
-    print("=" * 40)
+    print("=" * 60)
     print(f"Destination: {dest}")
-    print(f"Please download the following from Zenodo:")
-    for name, url in zenodo_urls.items():
-        print(f"  - {name}: {url}")
+    print()
+    print("Downloading from Zenodo:")
+    for name, url in TUS_REC_2024_URLS.items():
+        print(f"  - {name}: {url.split('?')[0]}")
+
     print()
     print("Note: TUS-REC2024 training data is split into 3 parts (~43GB total)")
     print("      Validation data is ~4GB")
     print()
 
-    # Create a README in the data directory with instructions
-    readme = dest / "README.md"
-    readme.write_text(
-        """# TUS-REC2024 Dataset
+    # Download each part
+    downloaded_files = []
+    for part_name, url in TUS_REC_2024_URLS.items():
+        zip_path = dest / f"{part_name}.zip"
+        if not zip_path.exists():
+            _download_file(url, zip_path)
+        downloaded_files.append(zip_path)
 
-## Download Instructions
+    # Extract archives
+    print()
+    print("Extracting archives...")
+    for zip_path in downloaded_files:
+        if zip_path.exists():
+            print(f"Extracting {zip_path.name}...")
+            extract_archive(zip_path, dest / "extracted")
+            zip_path.unlink()  # Remove zip after extraction
 
-TUS-REC2024 is split into multiple parts due to size:
+    print(f"Download complete: {dest}")
 
-### Training Data
-- Part 1: https://zenodo.org/records/11178508
-- Part 2: https://zenodo.org/records/11180794
-- Part 3: https://zenodo.org/records/11355499
+    # Create README
+    _create_tus_rec_readme(dest, "2024")
 
-### Validation Data
-- https://zenodo.org/records/12979481
-
-## Download Script
-
-On Kaggle, use the auto-download script:
-```python
-from usrecon.data.download import download_tus_rec_2024
-dest = download_tus_rec_2024(Path("/kaggle/tmp/tus-rec-2024"))
-```
-
-## Expected Structure
-
-tus-rec-2024/
-|-- train/
-|   |-- images/
-|   '-- poses/
-|-- val/
-|   |-- images/
-|   '-- poses/
-'-- test/
-    |-- images/
-    '-- poses/
-
-## Citation
-
-Li et al., "TUS-REC2024 Challenge: Trackerless Freehand Ultrasound
-2D-to-3D Reconstruction", https://github-pages.ucl.ac.uk/tus-rec-challenge/
-""",
-        encoding="utf-8",
-    )
-
-    # If on Kaggle with auto-publish, create dataset and publish
+    # Auto-publish to Kaggle if enabled
     if _running_on_kaggle() and auto_publish and kaggle_dataset_id:
         _publish_to_kaggle_dataset(dest, kaggle_dataset_id)
 
@@ -306,8 +399,8 @@ def download_tus_rec_2025(
     TUS-REC2025 is the updated forearm ultrasound dataset with additional data.
 
     Download URLs:
-    - Training: https://zenodo.org/records/15224704
-    - Validation: https://doi.org/10.5281/zenodo.15699958
+    - train: https://zenodo.org/records/15224704/files/Freehand_US_data_train_2025.zip
+    - val: https://zenodo.org/records/15699958/files/Freehand_US_data_val_2025.zip
 
     Args:
         dest: Destination directory
@@ -317,61 +410,42 @@ def download_tus_rec_2025(
     Returns:
         Path to downloaded dataset
     """
-    zenodo_urls = {
-        "train": "https://zenodo.org/records/15224704/files/train.zip",
-        "val": "https://zenodo.org/records/15699958/files/val.zip",
-    }
-
     dest.mkdir(parents=True, exist_ok=True)
 
+    print("=" * 60)
     print("TUS-REC2025 Dataset Download")
-    print("=" * 40)
+    print("=" * 60)
     print(f"Destination: {dest}")
-    print(f"Please download the following from Zenodo:")
-    for name, url in zenodo_urls.items():
-        print(f"  - {name}: {url}")
+    print()
+    print("Downloading from Zenodo:")
+    for name, url in TUS_REC_2025_URLS.items():
+        print(f"  - {name}: {url.split('?')[0]}")
+
     print()
 
-    # Create a README in the data directory with instructions
-    readme = dest / "README.md"
-    readme.write_text(
-        """# TUS-REC2025 Dataset
+    # Download each part
+    downloaded_files = []
+    for part_name, url in TUS_REC_2025_URLS.items():
+        zip_path = dest / f"{part_name}.zip"
+        if not zip_path.exists():
+            _download_file(url, zip_path)
+        downloaded_files.append(zip_path)
 
-## Download Instructions
+    # Extract archives
+    print()
+    print("Extracting archives...")
+    for zip_path in downloaded_files:
+        if zip_path.exists():
+            print(f"Extracting {zip_path.name}...")
+            extract_archive(zip_path, dest / "extracted")
+            zip_path.unlink()
 
-### Training Data
-- https://zenodo.org/records/15224704
+    print(f"Download complete: {dest}")
 
-### Validation Data
-- https://zenodo.org/records/15699958
+    # Create README
+    _create_tus_rec_readme(dest, "2025")
 
-## Download Script
-
-On Kaggle, use the auto-download script:
-```python
-from usrecon.data.download import download_tus_rec_2025
-dest = download_tus_rec_2025(Path("/kaggle/tmp/tus-rec-2025"))
-```
-
-## Expected Structure
-
-tus-rec-2025/
-|-- train/
-|   |-- images/
-|   '-- poses/
-'-- val/
-    |-- images/
-    '-- poses/
-
-## Citation
-
-Li et al., "TUS-REC2025 Challenge: Trackerless Freehand Ultrasound
-2D-to-3D Reconstruction", https://github.com/QiLi111/TUS-REC2025-Challenge_baseline
-""",
-        encoding="utf-8",
-    )
-
-    # If on Kaggle with auto-publish, create dataset and publish
+    # Auto-publish to Kaggle if enabled
     if _running_on_kaggle() and auto_publish and kaggle_dataset_id:
         _publish_to_kaggle_dataset(dest, kaggle_dataset_id)
 
@@ -390,7 +464,6 @@ def download_busi(
     Used for Stage 4b segmentation head training.
 
     Download URLs:
-    - Official: https://scholar.cu.edu.eg/?q=busi/download
     - Kaggle: https://www.kaggle.com/datasets/aryashah2k/breast-ultrasound-images-dataset
 
     Args:
@@ -403,61 +476,114 @@ def download_busi(
     """
     dest.mkdir(parents=True, exist_ok=True)
 
+    print("=" * 60)
     print("BUSI Dataset Download")
-    print("=" * 40)
+    print("=" * 60)
     print(f"Destination: {dest}")
-    print(f"Download options:")
-    print("  - Official: https://scholar.cu.edu.eg/?q=busi/download")
+    print()
+    print("Download options:")
     print("  - Kaggle: https://www.kaggle.com/datasets/aryashah2k/breast-ultrasound-images-dataset")
     print()
 
-    # Create a README in the data directory with instructions
+    # Download from Kaggle
+    busi_zip = dest / "busi.zip"
+    if not busi_zip.exists():
+        _download_file(BUSI_URLS["kaggle"], busi_zip)
+
+    # Extract
+    print()
+    print("Extracting...")
+    extract_archive(busi_zip, dest)
+    busi_zip.unlink()
+
+    print(f"Download complete: {dest}")
+
+    # Create README
+    _create_busi_readme(dest)
+
+    # Auto-publish to Kaggle if enabled
+    if _running_on_kaggle() and auto_publish and kaggle_dataset_id:
+        _publish_to_kaggle_dataset(dest, kaggle_dataset_id)
+
+    return dest
+
+
+def _create_tus_rec_readme(dest: Path, year: str) -> None:
+    """Create README for TUS-REC dataset."""
+    readme = dest / "README.md"
+    readme.write_text(
+        f"""# TUS-REC{year} Dataset
+
+## Description
+Trackerless Freehand Ultrasound 2D-to-3D Reconstruction Challenge dataset.
+
+## Download Source
+- Official: https://github.com/QiLi111/TUS-REC2025-Challenge_baseline
+- Zenodo: https://zenodo.org/records/15224704 (TUS-REC2025)
+- Zenodo: https://zenodo.org/records/11178509 (TUS-REC2024 train_part1)
+
+## Dataset Contents
+### Training Data
+- train/ - Training images and poses
+- Size: ~43GB (TUS-REC2024), ~50GB (TUS-REC2025)
+
+### Validation Data
+- val/ - Validation images and poses
+- Size: ~4GB
+
+## Expected Structure
+tus-rec-{year}/
+|-- train/
+|   |-- images/     # Raw ultrasound frames
+|   '-- poses/      # Ground-truth poses
+|-- val/
+|   |-- images/
+|   '-- poses/
+'-- test/
+    |-- images/
+    '-- poses/
+
+## Citation
+Li et al., "TUS-REC2025 Challenge: Trackerless Freehand Ultrasound
+2D-to-3D Reconstruction", https://github.com/QiLi111/TUS-REC2025-Challenge_baseline
+""",
+        encoding="utf-8",
+    )
+
+
+def _create_busi_readme(dest: Path) -> None:
+    """Create README for BUSI dataset."""
     readme = dest / "README.md"
     readme.write_text(
         """# BUSI (Breast Ultrasound Images) Dataset
 
-## Download Instructions
+## Description
+Public dataset of breast ultrasound images with segmentation masks.
+Used for Stage 4b (segmentation head training) after reconstruction pipeline.
 
-### Option 1: Official Source
-- Go to: https://scholar.cu.edu.eg/?q=busi/download
-- Register and download the dataset
+## Download Source
+- Kaggle: https://www.kaggle.com/datasets/aryashah2k/breast-ultrasound-images-dataset
 
-### Option 2: Kaggle
-- Download from: https://www.kaggle.com/datasets/aryashah2k/breast-ultrasound-images-dataset
-- Extract to: {dest}
-
-## Download Script
-
-On Kaggle, use the auto-download script:
-```python
-from usrecon.data.download import download_busi
-dest = download_busi(Path("/kaggle/tmp/busi"))
-```
+## Dataset Contents
+- images/ - Raw ultrasound images
+- masks/ - Segmentation masks
+- README.txt - Dataset documentation
 
 ## Expected Structure
-
 busi/
 |-- images/           # Raw ultrasound images
 |-- masks/            # Segmentation masks
 '-- README.txt        # Dataset documentation
 
 ## Usage
-
 This dataset is used for Stage 4b (segmentation head training) after
 the reconstruction pipeline is frozen.
 
 ## Citation
-
 El-Aref et al., "Breast Ultrasound Image Dataset (BUSI)", 2021.
 """,
         encoding="utf-8",
     )
-
-    # If on Kaggle with auto-publish, create dataset and publish
-    if _running_on_kaggle() and auto_publish and kaggle_dataset_id:
-        _publish_to_kaggle_dataset(dest, kaggle_dataset_id)
-
-    return dest
 
 
 def extract_archive(archive_path: Path, dest_dir: Path) -> Path:
