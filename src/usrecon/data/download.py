@@ -123,16 +123,17 @@ def download_tus_rec_2024(dest: Path) -> Path:
 ## Expected Structure
 
 tus-rec-2024/
-├── train/
-│   ├── images/
-│   └── poses/
-├── val/
-│   ├── images/
-│   └── poses/
-└── test/
-    ├── images/
-    └── poses/
-"""
+|-- train/
+|   |-- images/
+|   '-- poses/
+|-- val/
+|   |-- images/
+|   '-- poses/
+'-- test/
+    |-- images/
+    '-- poses/
+""",
+        encoding="utf-8",
     )
 
     return dest
@@ -173,16 +174,17 @@ def download_tus_rec_2025(dest: Path) -> Path:
 ## Expected Structure
 
 tus-rec-2025/
-├── train/
-│   ├── images/
-│   └── poses/
-├── val/
-│   ├── images/
-│   └── poses/
-└── test/
-    ├── images/
-    └── poses/
-"""
+|-- train/
+|   |-- images/
+|   '-- poses/
+|-- val/
+|   |-- images/
+|   '-- poses/
+'-- test/
+    |-- images/
+    '-- poses/
+""",
+        encoding="utf-8",
     )
 
     return dest
@@ -227,10 +229,11 @@ Option 2 (Kaggle):
 ## Expected Structure
 
 busi/
-├── images/           # Raw ultrasound images
-├── masks/            # Segmentation masks
-└── README.txt        # Dataset documentation
-"""
+|-- images/           # Raw ultrasound images
+|-- masks/            # Segmentation masks
+'-- README.txt        # Dataset documentation
+""",
+        encoding="utf-8",
     )
 
     return dest
