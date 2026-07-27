@@ -13,8 +13,7 @@ venv/
 .conda/
 .env
 
-# --- Data & outputs (never commit) ---
-data/
+# --- Outputs (never commit) ---
 outputs/
 *.pt
 *.pth
