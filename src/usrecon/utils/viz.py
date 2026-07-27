@@ -7,9 +7,12 @@ Import matplotlib lazily inside functions (not at module load) so importing
 or without matplotlib installed at all (e.g. a pure logic-check pass).
 """
 from __future__ import annotations
+import logging
 from pathlib import Path
 
 from ..paths import FIGURES_DIR
+
+logger = logging.getLogger(__name__)
 
 
 def _fig_path(stage: str, name: str) -> Path:
@@ -20,21 +23,46 @@ def _fig_path(stage: str, name: str) -> Path:
 
 def plot_frame_grid(frames, stage: str, name: str = "sample_frames", ncols: int = 4):
     """
-    frames: array-like, shape (N, H, W) or (N, 1, H, W), values in [0, 1] or [0, 255].
+    frames: array-like or Tensor, shape (N, H, W) or (N, 1, H, W), values in [0, 1] or [0, 255].
     Saves a grid of up to N sample frames.
     """
-    import matplotlib.pyplot as plt
-    import numpy as np
+    try:
+        import matplotlib.pyplot as plt
+    except (ImportError, ModuleNotFoundError):
+        logger.warning("matplotlib not installed; skipping plot_frame_grid for stage '%s'", stage)
+        return None
 
-    frames = np.asarray(frames)
-    if frames.ndim == 4:  # (N, C, H, W) -> squeeze channel
-        frames = frames[:, 0]
+    if hasattr(frames, "detach"):
+        frames = frames.detach().cpu()
+    if hasattr(frames, "numpy"):
+        try:
+            frames = frames.numpy()
+        except Exception:
+            pass
 
-    n = frames.shape[0]
+    if hasattr(frames, "ndim"):
+        if frames.ndim == 4:  # (N, C, H, W) -> squeeze channel
+            frames = frames[:, 0]
+        n = frames.shape[0]
+    else:
+        try:
+            import numpy as np
+            frames = np.asarray(frames)
+            if frames.ndim == 4:
+                frames = frames[:, 0]
+            n = frames.shape[0]
+        except Exception:
+            logger.warning("Could not convert frames for plot_frame_grid")
+            return None
+
     ncols = min(ncols, n)
     nrows = (n + ncols - 1) // ncols
     fig, axes = plt.subplots(nrows, ncols, figsize=(3 * ncols, 3 * nrows))
-    axes = np.atleast_1d(axes).reshape(-1)
+    if hasattr(axes, "reshape"):
+        axes = axes.reshape(-1)
+    elif not isinstance(axes, (list, tuple)):
+        axes = [axes]
+
     for i in range(nrows * ncols):
         ax = axes[i]
         ax.axis("off")
@@ -50,13 +78,20 @@ def plot_frame_grid(frames, stage: str, name: str = "sample_frames", ncols: int 
 
 def plot_before_after(before, after, stage: str, name: str = "augmentation"):
     """Single before/after pair, e.g. raw frame vs. augmented frame."""
-    import matplotlib.pyplot as plt
-    import numpy as np
+    try:
+        import matplotlib.pyplot as plt
+    except (ImportError, ModuleNotFoundError):
+        logger.warning("matplotlib not installed; skipping plot_before_after for stage '%s'", stage)
+        return None
 
-    before, after = np.asarray(before), np.asarray(after)
-    if before.ndim == 3:
+    if hasattr(before, "detach"):
+        before = before.detach().cpu()
+    if hasattr(after, "detach"):
+        after = after.detach().cpu()
+
+    if hasattr(before, "ndim") and before.ndim == 3:
         before = before[0]
-    if after.ndim == 3:
+    if hasattr(after, "ndim") and after.ndim == 3:
         after = after[0]
 
     fig, axes = plt.subplots(1, 2, figsize=(6, 3))
@@ -70,7 +105,11 @@ def plot_before_after(before, after, stage: str, name: str = "augmentation"):
 
 
 def plot_loss_curve(losses, stage: str, name: str = "loss_curve"):
-    import matplotlib.pyplot as plt
+    try:
+        import matplotlib.pyplot as plt
+    except (ImportError, ModuleNotFoundError):
+        logger.warning("matplotlib not installed; skipping plot_loss_curve for stage '%s'", stage)
+        return None
 
     fig, ax = plt.subplots(figsize=(5, 3))
     ax.plot(losses)
@@ -86,8 +125,12 @@ def plot_loss_curve(losses, stage: str, name: str = "loss_curve"):
 
 def show_latest(stage: str):
     """Kaggle/Jupyter convenience: inline-display every figure saved for a stage."""
-    import matplotlib.pyplot as plt
-    import matplotlib.image as mpimg
+    try:
+        import matplotlib.pyplot as plt
+        import matplotlib.image as mpimg
+    except (ImportError, ModuleNotFoundError):
+        logger.warning("matplotlib not installed; skipping show_latest for stage '%s'", stage)
+        return
 
     d = FIGURES_DIR / stage
     if not d.exists():

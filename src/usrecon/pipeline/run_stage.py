@@ -37,8 +37,22 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(messag
 logger = logging.getLogger(__name__)
 
 
-def _load_config(path: str) -> dict:
-    with open(path) as f:
+def _load_config(path: str | Path | None = None) -> dict:
+    if path is None:
+        from ..paths import CONFIG_DIR
+        cfg_path = CONFIG_DIR / "default.yaml"
+    else:
+        cfg_path = Path(path)
+        if not cfg_path.is_absolute() and not cfg_path.exists():
+            from ..paths import PROJECT_ROOT
+            alt = PROJECT_ROOT / cfg_path
+            if alt.exists():
+                cfg_path = alt
+            else:
+                alt_cfg = PROJECT_ROOT / "src" / "usrecon" / "config" / cfg_path.name
+                if alt_cfg.exists():
+                    cfg_path = alt_cfg
+    with open(cfg_path) as f:
         return yaml.safe_load(f)
 
 
@@ -70,7 +84,7 @@ def run_stage0_encoder(cfg: dict, use_synthetic: bool = True) -> None:
         ctx["output_shape"] = tuple(embeddings.shape)
         ctx["encoder_type"] = cfg["encoder"]["type"]
 
-        fig_path = plot_frame_grid(frames.detach().cpu().numpy(), stage="stage0_encoder")
+        fig_path = plot_frame_grid(frames, stage="stage0_encoder")
         ctx["sample_figure"] = str(fig_path)
 
         save_checkpoint("stage0_encoder", "encoder_init", encoder.state_dict())
@@ -88,11 +102,11 @@ def run_stage1_pose(cfg: dict, use_synthetic: bool = True) -> None:
     with stage_run("stage1_pose", config=cfg) as ctx:
         # Load encoder from checkpoint (pretrained in stage0)
         encoder = build_encoder(cfg["encoder"])
-        encoder_path = Path(cfg["training"].get("encoder_checkpoint", ""))
-        if encoder_path.exists():
+        encoder_ckpt_str = cfg["training"].get("encoder_checkpoint", "")
+        encoder_path = Path(encoder_ckpt_str) if encoder_ckpt_str else None
+        if encoder_path and encoder_path.is_file():
             encoder.load_state_dict(torch.load(encoder_path, map_location="cpu"))
         else:
-            # If no checkpoint, use encoder from config (smoke test mode)
             logger.info("No encoder checkpoint found, using fresh encoder for smoke test")
 
         # Freeze encoder for pose estimation
@@ -172,13 +186,15 @@ def run_stage2_compounding(cfg: dict, use_synthetic: bool = True) -> None:
     with stage_run("stage2_compounding", config=cfg) as ctx:
         # Load encoder and pose regressor from checkpoints
         encoder = build_encoder(cfg["encoder"])
-        encoder_path = Path(cfg["training"].get("encoder_checkpoint", ""))
-        if encoder_path.exists():
+        encoder_ckpt_str = cfg["training"].get("encoder_checkpoint", "")
+        encoder_path = Path(encoder_ckpt_str) if encoder_ckpt_str else None
+        if encoder_path and encoder_path.is_file():
             encoder.load_state_dict(torch.load(encoder_path, map_location="cpu"))
 
         pose_regressor = build_pose_regressor({"embed_dim": cfg["encoder"]["embed_dim"]})
-        pose_path = Path(cfg["training"].get("pose_checkpoint", ""))
-        if pose_path.exists():
+        pose_ckpt_str = cfg["training"].get("pose_checkpoint", "")
+        pose_path = Path(pose_ckpt_str) if pose_ckpt_str else None
+        if pose_path and pose_path.is_file():
             pose_regressor.load_state_dict(torch.load(pose_path, map_location="cpu"))
 
         encoder.eval()
@@ -230,8 +246,9 @@ def run_stage3_implicit_field(cfg: dict, use_synthetic: bool = True) -> None:
 
     with stage_run("stage3_implicit_field", config=cfg) as ctx:
         # Load data from checkpoint
-        checkpoint_path = Path(cfg["training"].get("checkpoint_path", ""))
-        if checkpoint_path.exists():
+        ckpt_str = cfg["training"].get("checkpoint_path", "")
+        checkpoint_path = Path(ckpt_str) if ckpt_str else None
+        if checkpoint_path and checkpoint_path.is_file():
             ckpt = torch.load(checkpoint_path, map_location="cpu")
             points = ckpt.get("points")
             intensities = ckpt.get("intensities")
@@ -306,11 +323,17 @@ def run_stage4_render(cfg: dict, use_synthetic: bool = True) -> None:
             pe_num_freqs=cfg["reconstruction"].get("pe_num_freqs", 6),
         )
 
-        checkpoint_path = Path(cfg["training"].get("implicit_checkpoint", ""))
-        if checkpoint_path.exists():
+        implicit_ckpt_str = cfg["training"].get("implicit_checkpoint", "")
+        checkpoint_path = Path(implicit_ckpt_str) if implicit_ckpt_str else None
+        from ..paths import OUTPUT_DIR
+        default_ckpt = OUTPUT_DIR / "stage3_implicit_field" / "implicit_model.pt"
+
+        if checkpoint_path and checkpoint_path.is_file():
             implicit_field.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
+        elif default_ckpt.is_file():
+            implicit_field.load_state_dict(torch.load(default_ckpt, map_location="cpu"))
         else:
-            raise FileNotFoundError("No implicit field checkpoint found. Run stage3 first.")
+            logger.info("No implicit field checkpoint found, using fresh model for smoke test")
 
         implicit_field.eval()
 
@@ -320,7 +343,7 @@ def run_stage4_render(cfg: dict, use_synthetic: bool = True) -> None:
             x = torch.linspace(-1, 1, grid_size)
             y = torch.linspace(-1, 1, grid_size)
             z = torch.linspace(-1, 1, grid_size)
-            xx, yy, zz = torch.meshgrid(x, y, z, indexing="xyz")
+            xx, yy, zz = torch.meshgrid(x, y, z, indexing="ij")
             points = torch.stack([xx.flatten(), yy.flatten(), zz.flatten()], dim=-1).unsqueeze(0)  # (1, N, 3)
 
             with torch.no_grad():

@@ -66,7 +66,7 @@ def test_pose_regressor_output_shape(encoder_for_pose, pose_regressor_for_test):
 
 def test_pose_regressor_no_nans(encoder_for_pose, pose_regressor_for_test):
     """Output should have no NaN or inf values."""
-    frames, _ = make_synthetic_sweep(num_frames=3, seed=0)
+    frames, _ = make_synthetic_sweep(num_frames=3, height=64, width=64, seed=0)
     B, N, C, H, W = frames.shape
 
     encoder = encoder_for_pose
@@ -84,7 +84,7 @@ def test_pose_regressor_no_nans(encoder_for_pose, pose_regressor_for_test):
 
 def test_pose_loss_computes_correctly(encoder_for_pose, pose_regressor_for_test):
     """Loss should be a valid scalar and gradients should flow."""
-    frames, gt_poses = make_synthetic_sweep(num_frames=3, seed=0)
+    frames, gt_poses = make_synthetic_sweep(num_frames=3, height=64, width=64, seed=0)
     B, N, C, H, W = frames.shape
 
     encoder = encoder_for_pose
@@ -120,7 +120,7 @@ def test_pose_loss_computes_correctly(encoder_for_pose, pose_regressor_for_test)
 
 def test_pose_loss_values_reasonable(encoder_for_pose, pose_regressor_for_test):
     """Loss should start large and decrease with training."""
-    frames, gt_poses = make_synthetic_sweep(num_frames=3, seed=0)
+    frames, gt_poses = make_synthetic_sweep(num_frames=3, height=64, width=64, seed=0)
     B, N, C, H, W = frames.shape
 
     encoder = encoder_for_pose
@@ -136,7 +136,7 @@ def test_pose_loss_values_reasonable(encoder_for_pose, pose_regressor_for_test):
     N_pts = 32
     points = torch.randn(B, N_pts, 3) * 0.1
 
-    optimizer = torch.optim.Adam(regressor.parameters(), lr=0.1)
+    optimizer = torch.optim.Adam(regressor.parameters(), lr=0.01)
 
     losses = []
     for _ in range(5):

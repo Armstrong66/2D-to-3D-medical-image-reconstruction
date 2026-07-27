@@ -27,11 +27,15 @@ def transform_point_cloud(points: torch.Tensor, transform: torch.Tensor) -> torc
     # Handle batched transforms
     if transform.ndim == 2:
         transform = transform.unsqueeze(1)  # (B, 1, 7)
-        transform = transform.expand(-1, points.shape[1], -1)  # (B, N_pts, 7)
+
+    # Align dimensions for broadcasting: transform (B, N, 1, 7), points (B, 1, N_pts, 3)
+    if transform.ndim == 3 and points.ndim == 3:
+        transform = transform.unsqueeze(2)  # (B, N, 1, 7)
+        points = points.unsqueeze(1)        # (B, 1, N_pts, 3)
 
     # Extract translation and quaternion
-    translation = transform[..., :3]  # (B, N, 3)
-    quat = transform[..., 3:]  # (B, N, 4)
+    translation = transform[..., :3]  # (B, N, 1, 3)
+    quat = transform[..., 3:]  # (B, N, 1, 4)
 
     # Normalize quaternion
     quat = quat / (quat.norm(dim=-1, keepdim=True) + 1e-8)

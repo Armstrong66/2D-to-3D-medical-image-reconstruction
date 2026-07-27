@@ -46,8 +46,9 @@ def compound_point_cloud(
     # For simplicity, we'll apply rotation only (no translation for now)
     # Translation is handled by pose accumulation in the reconstruction stage
     points = apply_rigid_transform(pixels, poses)
+    points = points.view(B, N * H * W, 3)
 
-    # Flatten frames and intensities
+    # Flatten intensities
     intensities = frames.view(B, N * H * W)
 
     return points, intensities
@@ -70,15 +71,12 @@ def apply_rigid_transform(points: torch.Tensor, poses: torch.Tensor) -> torch.Te
     quat = poses[..., 3:]  # (B, N, 4)
     quat = quat / (quat.norm(dim=-1, keepdim=True) + 1e-8)
 
-    qw = quat[..., 0]
-    qx = quat[..., 1]
-    qy = quat[..., 2]
-    qz = quat[..., 3]
+    qw = quat[..., 0:1]  # (B, N, 1)
+    qx = quat[..., 1:2]
+    qy = quat[..., 2:3]
+    qz = quat[..., 3:4]
 
-    # Rotation matrix from quaternion
-    # R = [[1-2(qy²+qz²), 2(qxqy-qwqz), 2(qxqz+qwqy)],
-    #      [2(qxqy+qwqz), 1-2(qx²+qz²), 2(qyqz-qwqx)],
-    #      [2(qxqz-qwqy), 2(qyqz+qwqx), 1-2(qx²+qy²)]]
+    # Rotation matrix from quaternion (B, N, 1)
     r00 = 1 - 2 * (qy.pow(2) + qz.pow(2))
     r01 = 2 * (qx * qy - qw * qz)
     r02 = 2 * (qx * qz + qw * qy)
@@ -90,16 +88,16 @@ def apply_rigid_transform(points: torch.Tensor, poses: torch.Tensor) -> torch.Te
     r22 = 1 - 2 * (qx.pow(2) + qy.pow(2))
 
     # Apply rotation
-    x = points[..., 0]
-    y = points[..., 1]
-    z = points[..., 2]
+    x = points[..., 0:1]  # (B, N, P, 1)
+    y = points[..., 1:2]
+    z = points[..., 2:3]
 
-    rx = r00 * x + r01 * y + r02 * z
-    ry = r10 * x + r11 * y + r12 * z
-    rz = r20 * x + r21 * y + r22 * z
+    rx = r00.unsqueeze(-1) * x + r01.unsqueeze(-1) * y + r02.unsqueeze(-1) * z
+    ry = r10.unsqueeze(-1) * x + r11.unsqueeze(-1) * y + r12.unsqueeze(-1) * z
+    rz = r20.unsqueeze(-1) * x + r21.unsqueeze(-1) * y + r22.unsqueeze(-1) * z
 
     # Stack rotated points
-    rotated = torch.stack([rx, ry, rz], dim=-1)
+    rotated = torch.cat([rx, ry, rz], dim=-1)  # (B, N, P, 3)
 
     # Add translation
     translation = poses[..., :3].unsqueeze(2)  # (B, N, 1, 3)
