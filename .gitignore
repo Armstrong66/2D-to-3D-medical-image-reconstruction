@@ -15,14 +15,41 @@ venv/
 
 # --- Outputs (never commit) ---
 outputs/
+
+# --- Data files (real ultrasound data - never commit) ---
+data/
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.tif
+*.tiff
+*.nii
+*.nii.gz
+*.nhdr
+*.mhd
+*.dcm
+*.dicom
+*.par
+*.rec
+*.nrrd
+*.raw
+*.img
+*.h5
+*.npy
+*.npz
+*.mat
+
+# --- Checkpoint files ---
 *.pt
 *.pth
 *.ckpt
-*.npz
-*.npy
-*.h5
-*.nii
-*.nii.gz
+*.bin
+*.safetensors
+
+# --- Model weights ---
+*._weights
+*.weights
 
 # --- Notebooks ---
 .ipynb_checkpoints/
