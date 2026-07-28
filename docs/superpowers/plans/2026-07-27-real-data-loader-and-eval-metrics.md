@@ -922,3 +922,22 @@ Not a code task; the checkpoint gate per README §5:
 1. Set `data.root` (or `data.dataset_name`) to the attached TUS-REC dataset and run `run_stage --stage stage_eval --real-data`.
 2. Confirm the 4 metrics are finite and in a plausible mm range; review the 3 figures.
 3. One-time cross-check that the all-pixel magnitude tracks the baseline's own reported numbers (catches any residual convention mismatch in `geometry/transforms.py`).
+
+---
+
+## Addendum — 2026-07-28 (calibration format + decisions)
+
+- **Task 1 (geometry) must load the real `calib_matrix.csv`**: two labelled 4x4
+  blocks — `S = scaling_from_pixel_to_mm` (anisotropic: sx=0.229389, sy=0.220980
+  mm/px) and `C = image->tracking-tool` (real rotation + ~117 mm offset). Add a
+  `Calibration` loader and a `pixel_to_tool = C @ S` matrix; point placement is
+  `p_world = T_i . C . S . [u,v,0,1]^T`. Use these real matrices in the calib
+  tests (not a synthetic diagonal).
+- **`reconstruction/compounding.py` calibration fix is folded into Task 1**
+  (deferred, not a standalone patch): today it uses scalar spacing + no C and is
+  only exercised by the synthetic smoke path. Build calibration once in geometry;
+  have compounding + real-data stages call it.
+- **Metrics: keep the full 4-metric set** (landmark errors included), degrading to
+  `None`/`n/a` when landmark files are absent — never a silent zero.
+- **Reference:** `notebooks/kaggle_real_data_train_eval.ipynb` already implements
+  calibrated `C @ S` placement and the full 4-metric eval; match its conventions.

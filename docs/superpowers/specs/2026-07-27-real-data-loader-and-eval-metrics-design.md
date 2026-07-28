@@ -203,3 +203,33 @@ training-loop changes beyond the `--real-data` branch, and multi-GPU concerns
   identity + known-transform tests here and the baseline cross-check on Kaggle.
 - **Landmark file availability** varies by scan; metrics degrade gracefully to
   the two all-pixel numbers with an explicit log, never a silent zero.
+
+---
+
+## Addendum — 2026-07-28 (real calibration file + decisions)
+
+The official `calib_matrix.csv` is now in hand. It is **two labelled 4x4 blocks**:
+
+- `scaling_from_pixel_to_mm` = **S**, anisotropic: `sx=0.229389`, `sy=0.220980`
+  mm/px (NOT the isotropic `0.5` placeholder).
+- `spatial_calibration_from_image_coordinate_system_to_tracking_tool_coordinate_system`
+  = **C**, a real rotation + **~117 mm** translation offset (probe sensor-to-
+  imaging-plane lever arm).
+
+Correct point placement is `p_world = T_i . C . S . [u,v,0,1]^T`. `geometry/
+transforms.py` (Task 1) must expose a `Calibration` loader for this two-block CSV
+and a `pixel_to_tool = C @ S` matrix; `apply_calibration` uses it. The package's
+`reconstruction/compounding.py` is currently uncalibrated (scalar spacing, no C)
+and is **exercised only by the synthetic smoke path** — its fix is **deferred and
+folded into the Task-1 geometry work** (build calibration once in geometry; have
+compounding + real-data stages call it), rather than a standalone patch.
+
+**Decisions (2026-07-28):**
+- **Package calibration fix:** deferred into the plan's geometry task (above).
+- **Metrics:** keep the **full 4-metric** set. Landmark errors degrade gracefully
+  to `None`/`n/a` when landmark files are absent (never a silent zero).
+
+**Reference implementation:** the Kaggle notebook
+`notebooks/kaggle_real_data_train_eval.ipynb` already implements the calibrated
+`C @ S` placement and the full 4-metric evaluation (landmark path guarded by
+`LANDMARK_DIR`). The package modules should match its conventions when built.
